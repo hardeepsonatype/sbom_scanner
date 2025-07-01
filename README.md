@@ -34,8 +34,8 @@ The script expects the SBOM files to follow a specific naming convention to extr
 -   `applicationInternalId`: The unique internal identifier for the application in your Sonatype IQ Server.
 
 **Examples:**
--   `RPSService_source_a66930704fa94e019241d724d0ae2311.xml`
--   `user-microservice__volvogroupVG-MSCP_build_5ebc6dda22ac4885b3ef9227fd78da92.xml`
+-   `exampleappname_source_a66930554dg94e013941d224d0ae2311.xml`
+-   `test-test__exampletest_build_5ebc6dda11ac4355f3ff9656fd78da92.xml`
 
 ## Usage
 
