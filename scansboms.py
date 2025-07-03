@@ -9,9 +9,9 @@ from requests.auth import HTTPBasicAuth
 
 # --- Configuration ---
 # Time in seconds to wait between checking the status of an ongoing scan.
-STATUS_CHECK_INTERVAL = 30
+STATUS_CHECK_INTERVAL = 10
 # Maximum number of concurrent scans allowed.
-MAX_CONCURRENT_SCANS = 5
+MAX_CONCURRENT_SCANS = 10
 
 def parse_filename(filepath):
     """
@@ -126,7 +126,7 @@ def check_scan_status(iq_server_url, auth, status_url):
         # We will return False to keep trying, in case it's a transient network issue.
         return False
 
-def scan_worker(filepath, iq_server_url, auth, semaphore):
+def scan_worker(filepath, iq_server_url, auth, semaphore, processed_counter, total_files, lock):
     """
     The main worker function for each thread. It handles submitting and monitoring a single SBOM file.
     
@@ -135,15 +135,24 @@ def scan_worker(filepath, iq_server_url, auth, semaphore):
         iq_server_url (str): The base URL of the IQ Server.
         auth (HTTPBasicAuth): The authentication object.
         semaphore (threading.Semaphore): The semaphore to control concurrency.
+        processed_counter (list): A mutable list containing a single integer to track progress.
+        total_files (int): The total number of files to process.
+        lock (threading.Lock): A lock to ensure thread-safe updates to the counter.
     """
     try:
         app_name, stage, app_id = parse_filename(filepath)
         if not all([app_name, stage, app_id]):
-            return # Error message is printed in parse_filename
+            # Increment counter even on parsing failure to avoid hanging
+            with lock:
+                processed_counter[0] += 1
+            return
 
         status_url = submit_sbom_scan(iq_server_url, auth, app_id, stage, filepath)
         if not status_url:
-            return # Error message is printed in submit_sbom_scan
+            # Increment counter on submission failure
+            with lock:
+                processed_counter[0] += 1
+            return
 
         # Poll for completion
         while True:
@@ -151,10 +160,14 @@ def scan_worker(filepath, iq_server_url, auth, semaphore):
             if check_scan_status(iq_server_url, auth, status_url):
                 break
     finally:
-        # Always release the semaphore when the worker is done
+        # Always release the semaphore and update the progress counter
         semaphore.release()
-        # Note: semaphore._value is an internal detail, used here for informative logging.
+        with lock:
+            processed_counter[0] += 1
+            current_count = processed_counter[0]
+        
         print(f"Worker finished for {os.path.basename(filepath)}. Available slots: {semaphore._value}")
+        print(f"\n****** PROCESSED {current_count}/{total_files} ******\n")
 
 
 def main():
@@ -180,16 +193,20 @@ def main():
         print(f"No .xml files found in '{args.directory}'.")
         sys.exit(0)
         
-    print(f"Found {len(sbom_files)} SBOM files to process.")
+    total_files = len(sbom_files)
+    print(f"Found {total_files} SBOM files to process.")
 
     auth = HTTPBasicAuth(args.user, args.password)
     semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
     threads = []
+    
+    processed_counter = [0]  # Use a list as a mutable counter for thread-safe updates
+    counter_lock = threading.Lock()
 
     for sbom_file in sbom_files:
         semaphore.acquire() # This will block if 5 scans are already running
         print(f"Acquired semaphore slot for {os.path.basename(sbom_file)}. Starting worker...")
-        thread = threading.Thread(target=scan_worker, args=(sbom_file, args.url, auth, semaphore))
+        thread = threading.Thread(target=scan_worker, args=(sbom_file, args.url, auth, semaphore, processed_counter, total_files, counter_lock))
         threads.append(thread)
         thread.start()
 
@@ -197,7 +214,7 @@ def main():
     for thread in threads:
         thread.join()
 
-    print("\nAll SBOM files have been processed.")
+    print(f"\nAll {total_files} SBOM files have been processed.")
 
 if __name__ == "__main__":
     main()
