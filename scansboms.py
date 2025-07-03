@@ -9,9 +9,9 @@ from requests.auth import HTTPBasicAuth
 
 # --- Configuration ---
 # Time in seconds to wait between checking the status of an ongoing scan.
-STATUS_CHECK_INTERVAL = 10
+STATUS_CHECK_INTERVAL = 5
 # Maximum number of concurrent scans allowed.
-MAX_CONCURRENT_SCANS = 10
+MAX_CONCURRENT_SCANS = 30
 
 def parse_filename(filepath):
     """
